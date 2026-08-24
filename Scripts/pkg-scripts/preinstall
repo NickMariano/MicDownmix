@@ -1,0 +1,36 @@
+#!/bin/bash
+#
+# Quits any running copy before its bundle is replaced underneath it.
+#
+# Upgrading in place while the app is live leaves a process whose code no longer matches what is on
+# disk, and its audio engine still holding the interface.
+
+LOG=/tmp/micdownmix-install.log
+exec >>"$LOG" 2>&1
+echo "=== preinstall $(date) ==="
+
+CONSOLE_USER="$(stat -f%Su /dev/console)"
+if [ -n "$CONSOLE_USER" ] && [ "$CONSOLE_USER" != "root" ]; then
+    su - "$CONSOLE_USER" -c 'osascript -e "tell application \"MicDownmix\" to quit"' 2>/dev/null
+    sleep 1
+fi
+pkill -f "/Applications/MicDownmix.app/Contents/MacOS/MicDownmix" 2>/dev/null
+echo "stopped any running copy"
+
+# Record the installed driver's declared version, so the postinstall can tell whether this install
+# actually changes it. Restarting coreaudiod interrupts audio everywhere on the machine, and most
+# updates only touch the app.
+#
+# The version rather than a content hash: notarization requires codesign --timestamp, which embeds a
+# fresh timestamp on every build, so the driver's bytes differ even when its code is identical.
+DRIVER="/Library/Audio/Plug-Ins/HAL/MicDownmixDriver.driver"
+STAMP="/tmp/micdownmix-driver-before.version"
+rm -f "$STAMP"
+if [ -f "$DRIVER/Contents/Info.plist" ]; then
+    /usr/libexec/PlistBuddy -c "Print :CFBundleVersion" "$DRIVER/Contents/Info.plist" 2>/dev/null > "$STAMP"
+    echo "existing driver version: $(cat "$STAMP" 2>/dev/null)"
+else
+    echo "no driver installed yet"
+fi
+
+exit 0

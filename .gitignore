@@ -1,0 +1,18 @@
+# Build output
+.build*/
+build/
+*.dSYM/
+
+# Signing material. Never commit certificates, keys or signing requests.
+*.p12
+*.pem
+*.key
+*.cer
+*.certSigningRequest
+*.provisionprofile
+.micdownmix-signing/
+.channelmic-signing/
+
+# Local noise
+.DS_Store
+*.log

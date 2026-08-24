@@ -1,0 +1,80 @@
+#!/bin/bash
+#
+# Runs as root after the payload is in place.
+#
+# Loads the freshly installed HAL plug-in, waits for the audio server to actually come back, then
+# opens the app as the logged-in user.
+
+LOG=/tmp/micdownmix-install.log
+exec >>"$LOG" 2>&1
+echo "=== postinstall $(date) ==="
+
+APP="/Applications/MicDownmix.app"
+DRIVER="/Library/Audio/Plug-Ins/HAL/MicDownmixDriver.driver"
+
+# Drop drivers from this project's earlier names. Leaving one installed publishes a second, near
+# identical microphone that nothing drives.
+rm -rf "/Library/Audio/Plug-Ins/HAL/MacAudioDriver.driver" \
+       "/Library/Audio/Plug-Ins/HAL/ChannelMicDriver.driver"
+chown -R root:wheel "$DRIVER" 2>/dev/null
+
+# Only restart the audio server when the driver actually changed. coreaudiod restarts interrupt
+# every audio application on the machine, and an app-only update has no reason to do that.
+STAMP="/tmp/micdownmix-driver-before.version"
+BEFORE="$(cat "$STAMP" 2>/dev/null)"
+rm -f "$STAMP"
+AFTER="$(/usr/libexec/PlistBuddy -c "Print :CFBundleVersion" "$DRIVER/Contents/Info.plist" 2>/dev/null)"
+
+if [ -n "$BEFORE" ] && [ "$BEFORE" = "$AFTER" ]; then
+    echo "driver version unchanged ($AFTER); leaving coreaudiod alone"
+    READY=1
+else
+    echo "driver version $BEFORE -> $AFTER; restarting coreaudiod"
+    killall coreaudiod 2>/dev/null
+    READY=0
+fi
+
+# Wait for the audio server to be serving again, rather than sleeping a fixed interval and hoping.
+#
+# Every CoreAudio call is synchronous IPC to coreaudiod. Launching the app while the server is still
+# coming back means the app blocks on its first device query, and since every other audio client is
+# waiting on the same service it presents as a system-wide beachball.
+for ATTEMPT in $(seq 1 30); do
+    [ "$READY" -eq 1 ] && break
+    sleep 1
+    pgrep -x coreaudiod >/dev/null 2>&1 || continue
+    if system_profiler SPAudioDataType 2>/dev/null | grep -q "MicDownmix"; then
+        READY=1
+        echo "audio server ready after ${ATTEMPT}s, driver loaded"
+        break
+    fi
+done
+
+if [ "$READY" -eq 0 ]; then
+    echo "WARNING: audio server did not report the driver within 30s; launching anyway"
+fi
+
+CONSOLE_USER="$(stat -f%Su /dev/console)"
+echo "console user: $CONSOLE_USER"
+if [ -z "$CONSOLE_USER" ] || [ "$CONSOLE_USER" = "root" ]; then
+    echo "no console user; skipping launch"
+    exit 0
+fi
+CONSOLE_UID="$(id -u "$CONSOLE_USER")"
+
+if [ ! -d "$APP" ]; then
+    echo "ERROR: $APP is missing after install; nothing to launch"
+    exit 0
+fi
+
+if launchctl asuser "$CONSOLE_UID" sudo -u "$CONSOLE_USER" open -a "$APP"; then
+    echo "launched via launchctl asuser + sudo"
+elif launchctl asuser "$CONSOLE_UID" open -a "$APP"; then
+    echo "launched via launchctl asuser"
+elif su - "$CONSOLE_USER" -c "open -a '$APP'"; then
+    echo "launched via su"
+else
+    echo "ERROR: every launch attempt failed"
+fi
+
+exit 0

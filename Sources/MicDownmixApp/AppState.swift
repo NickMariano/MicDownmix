@@ -12,8 +12,6 @@ final class AppState: ObservableObject {
     @Published private(set) var driverInstalled = false
     @Published private(set) var errorMessage: String?
     @Published private(set) var isRunning = false
-    @Published private(set) var channelPeaks: [Float] = []
-    @Published private(set) var outputPeak: Float = 0
     @Published private(set) var underruns = 0
 
     /// Mirrors the LaunchAgent on disk rather than a stored preference, so the toggle always reflects
@@ -77,7 +75,8 @@ final class AppState: ObservableObject {
     /// audio client is waiting on the same service it presents as a system-wide beachball.
     private let audioQueue = DispatchQueue(label: "com.stealthpyro.MicDownmix.audio", qos: .userInitiated)
     private let defaults = UserDefaults.standard
-    private var meterTimer: Timer?
+    /// Meters live on their own object; see MeterModel for why.
+    let meters = MeterModel()
     /// Auto-start is deferred until the device list has loaded, since that now happens off the main
     /// thread and is not finished when init returns.
     private var wantsAutoStart = false
@@ -99,6 +98,7 @@ final class AppState: ObservableObject {
         }
         engine.selectedChannels = selectedChannels
         engine.gain = gain
+        meters.configure(engine: engine) { [weak self] in self?.displayChannelCount ?? 0 }
         launchAtLogin = LoginItem.isEnabled
 
         // Kicks off asynchronously; auto-start happens once the device list has actually loaded.
@@ -110,9 +110,6 @@ final class AppState: ObservableObject {
             Task { @MainActor in self?.handleDeviceListChange() }
         }
 
-        meterTimer = Timer.scheduledTimer(withTimeInterval: 1.0 / 30.0, repeats: true) { [weak self] _ in
-            Task { @MainActor in self?.sampleMeters() }
-        }
 
         requestMicrophoneAccess()
     }
@@ -183,8 +180,6 @@ final class AppState: ObservableObject {
         let engine = self.engine
         audioQueue.async { engine.stop() }
         isRunning = false
-        outputPeak = 0
-        channelPeaks = []
     }
 
     func toggleRunning() {
@@ -221,13 +216,6 @@ final class AppState: ObservableObject {
         }
     }
 
-    private func sampleMeters() {
-        guard isRunning else { return }
-        let count = displayChannelCount
-        channelPeaks = (0..<count).map { engine.channelPeak($0) }
-        outputPeak = engine.outputPeak
-        underruns = engine.status.underruns
-    }
 
 
     private func requestMicrophoneAccess() {

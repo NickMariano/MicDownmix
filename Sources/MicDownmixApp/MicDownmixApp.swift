@@ -42,7 +42,7 @@ struct MicDownmixApp: App {
 
     var body: some Scene {
         MenuBarExtra("MicDownmix", systemImage: menuBarSymbol) {
-            ContentView(state: state, updates: updates, openSetup: openSetup)
+            ContentView(state: state, meters: state.meters, updates: updates, openSetup: openSetup)
                 .task {
                     // Setup opens itself whenever anything is outstanding, on every launch, not
                     // just the first. A permission revoked months later resurfaces the same way.

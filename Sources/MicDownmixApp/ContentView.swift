@@ -3,6 +3,7 @@ import SwiftUI
 
 struct ContentView: View {
     @ObservedObject var state: AppState
+    @ObservedObject var meters: MeterModel
     @ObservedObject var updates: UpdateChecker
     var openSetup: () -> Void
 
@@ -44,6 +45,9 @@ struct ContentView: View {
         }
         .padding(14)
         .frame(width: 320)
+        // Meters cost a layout pass per update, so they run only while this panel is on screen.
+        .onAppear { state.meters.begin() }
+        .onDisappear { state.meters.end() }
     }
 
     private var header: some View {
@@ -153,7 +157,7 @@ struct ContentView: View {
                             ChannelRow(
                                 index: channel,
                                 isSelected: state.isChannelSelected(channel),
-                                level: channel < state.channelPeaks.count ? state.channelPeaks[channel] : 0,
+                                level: channel < meters.channelPeaks.count ? meters.channelPeaks[channel] : 0,
                                 toggle: { state.setChannel(channel, selected: !state.isChannelSelected(channel)) }
                             )
                         }
@@ -191,7 +195,7 @@ struct ContentView: View {
             Text("Output")
                 .font(.caption)
                 .foregroundStyle(.secondary)
-            LevelBar(level: state.outputPeak, height: 6)
+            LevelBar(level: meters.outputPeak, height: 6)
         }
     }
 
